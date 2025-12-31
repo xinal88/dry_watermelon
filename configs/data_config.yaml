@@ -1,0 +1,73 @@
+# Data Configuration
+
+dataset:
+  name: "RAVDESS"
+  root_dir: "data/raw/RAVDESS"
+  
+  # RAVDESS specific
+  modalities: ["audio", "video"]  # or ["audio"], ["video"], ["audio", "video"]
+  actors: "all"  # or list of actor IDs [1, 2, 3, ...]
+  
+  # Data split
+  split_ratio:
+    train: 0.7
+    val: 0.15
+    test: 0.15
+  split_strategy: "actor_independent"  # or "random", "stratified"
+  
+  # Emotion labels (RAVDESS)
+  emotions:
+    - "neutral"      # 01
+    - "calm"         # 02
+    - "happy"        # 03
+    - "sad"          # 04
+    - "angry"        # 05
+    - "fearful"      # 06
+    - "disgust"      # 07
+    - "surprised"    # 08
+
+# Audio Processing
+audio:
+  sample_rate: 16000
+  duration: 3.0  # seconds, pad or trim to this duration
+  n_mels: 80
+  n_fft: 512
+  hop_length: 160
+  win_length: 400
+  
+  # Augmentation
+  augmentation:
+    enabled: true
+    time_stretch: [0.9, 1.1]
+    pitch_shift: [-2, 2]  # semitones
+    noise_injection: 0.005
+    
+# Video Processing
+video:
+  fps: 25
+  duration: 3.0  # seconds
+  frame_size: [224, 224]
+  num_frames: 16  # Sample 16 frames from video
+  
+  # Face detection
+  face_detection:
+    enabled: true
+    detector: "mediapipe"  # or "retinaface", "mtcnn"
+    min_detection_confidence: 0.5
+    
+  # Augmentation
+  augmentation:
+    enabled: true
+    horizontal_flip: 0.5
+    rotation: [-10, 10]
+    brightness: [0.8, 1.2]
+    contrast: [0.8, 1.2]
+
+# DataLoader
+dataloader:
+  batch_size: 8  # Adjust based on GPU memory
+  num_workers: 4
+  pin_memory: true
+  prefetch_factor: 2
+  persistent_workers: true
+

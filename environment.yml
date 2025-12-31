@@ -1,0 +1,90 @@
+# Conda environment for Lightweight Multimodal FER
+# Create: conda env create -f environment.yml
+# Activate: conda activate fer
+
+name: fer
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+
+dependencies:
+  # Python version
+  - python=3.10
+  
+  # CUDA support (adjust for your GPU)
+  - cudatoolkit=11.8
+  
+  # PyTorch with CUDA - using pip for latest versions
+  - pip
+  
+  # Scientific computing base
+  - numpy>=1.24
+  - scipy>=1.10
+  - pandas>=2.0
+  - scikit-learn>=1.3
+  
+  # Visualization
+  - matplotlib>=3.7
+  - seaborn>=0.12
+  
+  # Development tools
+  - jupyter
+  - ipython
+  - pytest
+  
+  # Utilities
+  - pyyaml
+  - tqdm
+  - rich
+  
+  # Pip packages (for specific versions and packages not in conda)
+  - pip:
+    # PyTorch ecosystem (with CUDA 11.8)
+    - torch>=2.1.0
+    - torchvision>=0.16.0
+    - torchaudio>=2.1.0
+    - pytorch-lightning>=2.1.0
+    - torchmetrics>=1.0.0
+    
+    # Transformers for SigLIP2
+    - transformers>=4.36.0
+    - accelerate>=0.25.0
+    - safetensors>=0.4.0
+    
+    # Vision models
+    - timm>=0.9.12
+    
+    # Audio processing
+    - librosa>=0.10.0
+    - soundfile>=0.12.0
+    - audioread>=3.0.0
+    
+    # Video processing
+    - opencv-python>=4.8.0
+    - av>=11.0.0
+    - decord>=0.6.0
+    
+    # NeMo for FastConformer (optional - heavy dependency)
+    # Uncomment if you want to use NeMo:
+    # - nemo_toolkit[asr]>=1.22.0
+    
+    # Configuration
+    - omegaconf>=2.3.0
+    - hydra-core>=1.3.0
+    
+    # Utilities
+    - einops>=0.7.0
+    
+    # Face detection for ROI
+    - mediapipe>=0.10.0
+    
+    # Logging
+    - tensorboard>=2.15.0
+    - wandb>=0.16.0
+    
+    # Code quality
+    - black>=23.0.0
+    - flake8>=6.0.0
+

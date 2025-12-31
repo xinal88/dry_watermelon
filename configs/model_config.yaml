@@ -1,0 +1,73 @@
+# Model Configuration for Lightweight Multimodal FER
+
+model:
+  name: "LightweightMultimodalFER"
+  num_classes: 8  # RAVDESS: neutral, calm, happy, sad, angry, fearful, disgust, surprised
+  
+  # Audio Branch Configuration
+  audio_branch:
+    encoder:
+      name: "FastConformer"
+      # FastConformer parameters
+      pretrained: "nvidia/stt_en_fastconformer_ctc_large"  # or custom path
+      freeze_encoder: false  # Set true for faster training
+      feature_dim: 512  # Output dimension from FastConformer
+      
+      # Audio preprocessing
+      sample_rate: 16000
+      n_mels: 80
+      n_fft: 512
+      hop_length: 160
+      win_length: 400
+      
+    pooling:
+      name: "SegmentAttentionPooling"
+      num_segments: 8  # Split temporal sequence into 8 segments
+      hidden_dim: 512
+      num_heads: 8
+      dropout: 0.1
+      pooling_type: "attention"  # Options: "attention", "max", "avg", "learnable"
+      
+  # Visual Branch Configuration (To be implemented)
+  visual_branch:
+    encoder:
+      name: "SigLip2"
+      pretrained: "google/siglip-base-patch16-224"
+      freeze_encoder: false
+      feature_dim: 768
+      
+    roi_compression:
+      name: "PerceiverResampler"
+      num_latents: 32
+      dim: 768
+      depth: 2
+      num_heads: 8
+      
+    temporal_encoder:
+      name: "TemporalTransformer"
+      dim: 768
+      depth: 2
+      num_heads: 8
+      dropout: 0.1
+      
+  # Fusion Configuration
+  fusion:
+    name: "LiquidFusion"
+    visual_dim: 768
+    audio_dim: 512
+    hidden_dim: 512
+    num_layers: 3
+    dropout: 0.1
+    
+  # Classifier Head
+  classifier:
+    hidden_dims: [512, 256]
+    dropout: 0.1
+    activation: "gelu"
+
+# Model Optimization
+optimization:
+  use_gradient_checkpointing: true  # Save memory
+  mixed_precision: true  # FP16 training
+  compile_model: false  # torch.compile (PyTorch 2.0+)
+
