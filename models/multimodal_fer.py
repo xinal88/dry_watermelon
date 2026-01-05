@@ -132,7 +132,7 @@ class MultimodalFER(nn.Module):
         self.classifier = EmotionClassifier(**config.classifier_config.to_dict())
         
         print("\n" + "="*70)
-        print("✅ Multimodal FER Model Built Successfully!")
+        print("[SUCCESS] Multimodal FER Model Built Successfully!")
         print("="*70)
     
     def forward(

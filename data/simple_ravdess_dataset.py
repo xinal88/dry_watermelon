@@ -1,7 +1,8 @@
 """
-RAVDESS Dataset Loader
+Simple RAVDESS Dataset Loader - Works with ANY folder structure
 
-Full RAVDESS dataset with train/val/test splits.
+Just finds all .mp4 files and parses filenames.
+No complex folder structure required!
 """
 
 import torch
@@ -13,42 +14,33 @@ from typing import Tuple, List, Dict
 import warnings
 
 
-class RAVDESSDataset(Dataset):
+class SimpleRAVDESSDataset(Dataset):
     """
-    RAVDESS Multimodal Dataset.
+    Simple RAVDESS Dataset - works with any folder structure.
     
-    File naming: XX-YY-ZZ-AA-BB-CC-DD.mp4
+    Just finds all .mp4 files recursively and parses filenames.
+    
+    Filename format: XX-YY-ZZ-AA-BB-CC-DD.mp4
     - XX: Modality (01=audio-video, 02=video-only, 03=audio-only)
     - YY: Vocal channel (01=speech, 02=song)
-    - ZZ: Emotion (01=neutral, 02=calm, 03=happy, 04=sad, 05=angry, 06=fearful, 07=disgust, 08=surprised)
+    - ZZ: Emotion (01-08)
     - AA: Emotional intensity (01=normal, 02=strong)
-    - BB: Statement (01="Kids are talking by the door", 02="Dogs are sitting by the door")
-    - CC: Repetition (01=1st, 02=2nd)
-    - DD: Actor (01-24, odd=male, even=female)
+    - BB: Statement (01 or 02)
+    - CC: Repetition (01 or 02)
+    - DD: Actor (01-24)
     """
     
     def __init__(
         self,
         data_dir: str,
         split: str = "train",
-        modality: str = "speech",  # "speech" or "song"
+        modality: str = "speech",
         audio_sample_rate: int = 16000,
         audio_duration: float = 3.0,
         num_video_frames: int = 16,
         video_size: Tuple[int, int] = (224, 224),
         use_audio: bool = True,
     ):
-        """
-        Args:
-            data_dir: Path to RAVDESS data directory
-            split: "train", "val", or "test"
-            modality: "speech" or "song"
-            audio_sample_rate: Audio sampling rate
-            audio_duration: Audio duration in seconds
-            num_video_frames: Number of frames to extract
-            video_size: Video frame size (H, W)
-            use_audio: Whether to extract audio (requires ffmpeg)
-        """
         self.data_dir = Path(data_dir)
         self.split = split
         self.modality = modality
@@ -58,16 +50,10 @@ class RAVDESSDataset(Dataset):
         self.video_size = video_size
         self.use_audio = use_audio
         
-        # Emotion mapping (RAVDESS code -> index)
+        # Emotion mapping
         self.emotion_map = {
-            "01": 0,  # neutral
-            "02": 1,  # calm
-            "03": 2,  # happy
-            "04": 3,  # sad
-            "05": 4,  # angry
-            "06": 5,  # fearful
-            "07": 6,  # disgust
-            "08": 7,  # surprised
+            "01": 0, "02": 1, "03": 2, "04": 3,
+            "05": 4, "06": 5, "07": 6, "08": 7,
         }
         
         self.emotion_names = [
@@ -75,77 +61,65 @@ class RAVDESSDataset(Dataset):
             "angry", "fearful", "disgust", "surprised"
         ]
         
-        # Load file list
+        # Load files
         self.video_files = self._load_files()
         
         print(f"Loaded {len(self.video_files)} videos for {split} split ({modality})")
     
-    def _load_files(self) -> List[Path]:
-        """Load video files based on split and modality."""
-        # Determine which folders to use
-        if self.modality == "speech":
-            # Try both patterns: "Actor_*" (common) and "Video_Speech_Actor_*"
-            pattern1 = "Actor_*"
-            pattern2 = "Video_Speech_Actor_*"
-            actor_folders = list(self.data_dir.glob(pattern1)) + list(self.data_dir.glob(pattern2))
-            # Remove duplicates and audio-only folders
-            actor_folders = [f for f in actor_folders if f.is_dir() and not f.name.startswith("Audio_")]
-        else:  # song
-            pattern = "Video_Song_Actor_*"
-            actor_folders = list(self.data_dir.glob(pattern))
-        
-        # Get all actor folders (already collected above)
-        actor_folders = sorted(set(actor_folders))
-        
-        # Split actors: train (1-16), val (17-20), test (21-24)
-        if self.split == "train":
-            actor_range = range(1, 17)  # Actors 01-16
-        elif self.split == "val":
-            actor_range = range(17, 21)  # Actors 17-20
-        else:  # test
-            actor_range = range(21, 25)  # Actors 21-24
-        
-        # Collect video files
-        video_files = []
-        for folder in actor_folders:
-            # Extract actor number from folder name (handles both "Actor_01" and "Actor_1")
-            actor_str = folder.name.split("_")[-1]
-            actor_num = int(actor_str.lstrip('0') or '0')  # Remove leading zeros, handle "00"
-            
-            if actor_num in actor_range:
-                # Check for nested Actor_XX folder structure
-                nested_actor_folder = folder / f"Actor_{actor_str}"
-                if nested_actor_folder.exists():
-                    videos = list(nested_actor_folder.glob("*.mp4"))
-                else:
-                    # Fallback to direct .mp4 files in folder
-                    videos = list(folder.glob("*.mp4"))
-                
-                video_files.extend(videos)
-        
-        return sorted(video_files)
-    
     def _parse_filename(self, filename: str) -> Dict:
-        """Parse RAVDESS filename to extract metadata."""
-        parts = filename.stem.split("-")
+        """Parse RAVDESS filename."""
+        try:
+            parts = filename.replace('.mp4', '').split('-')
+            if len(parts) != 7:
+                return None
+            
+            return {
+                "modality_code": parts[0],
+                "vocal_channel": parts[1],  # 01=speech, 02=song
+                "emotion": parts[2],
+                "intensity": parts[3],
+                "statement": parts[4],
+                "repetition": parts[5],
+                "actor": int(parts[6]),  # Actor number as int
+            }
+        except:
+            return None
+    
+    def _load_files(self) -> List[Path]:
+        """Load all .mp4 files and filter by split and modality."""
+        # Find ALL .mp4 files recursively
+        all_videos = list(self.data_dir.rglob("*.mp4"))
         
-        return {
-            "modality": parts[0],
-            "vocal_channel": parts[1],
-            "emotion": parts[2],
-            "intensity": parts[3],
-            "statement": parts[4],
-            "repetition": parts[5],
-            "actor": parts[6],
-        }
+        # Filter by modality and split
+        filtered_videos = []
+        
+        for video_path in all_videos:
+            metadata = self._parse_filename(video_path.name)
+            
+            if metadata is None:
+                continue
+            
+            # Filter by modality (speech=01, song=02)
+            if self.modality == "speech" and metadata["vocal_channel"] != "01":
+                continue
+            if self.modality == "song" and metadata["vocal_channel"] != "02":
+                continue
+            
+            # Filter by split (based on actor number)
+            actor_num = metadata["actor"]
+            
+            if self.split == "train" and 1 <= actor_num <= 16:
+                filtered_videos.append(video_path)
+            elif self.split == "val" and 17 <= actor_num <= 20:
+                filtered_videos.append(video_path)
+            elif self.split == "test" and 21 <= actor_num <= 24:
+                filtered_videos.append(video_path)
+        
+        return sorted(filtered_videos)
     
     def _extract_audio(self, video_path: Path) -> torch.Tensor:
-        """
-        Extract audio from video.
-        Returns silence if extraction fails (ffmpeg not available).
-        """
+        """Extract audio from video."""
         if not self.use_audio:
-            # Return silence
             target_length = int(self.audio_sample_rate * self.audio_duration)
             return torch.zeros(target_length)
         
@@ -154,7 +128,6 @@ class RAVDESSDataset(Dataset):
             import subprocess
             import tempfile
             
-            # Extract audio using ffmpeg
             with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
                 tmp_path = tmp.name
             
@@ -168,26 +141,20 @@ class RAVDESSDataset(Dataset):
             ]
             
             subprocess.run(cmd, check=True)
-            
-            # Load audio
             waveform, sr = torchaudio.load(tmp_path)
-            
-            # Clean up
             Path(tmp_path).unlink()
             
-            # Ensure mono
             if waveform.shape[0] > 1:
                 waveform = waveform.mean(dim=0, keepdim=True)
             
             waveform = waveform.squeeze(0)
             
         except Exception as e:
-            # Fallback to silence
             warnings.warn(f"Failed to extract audio from {video_path}: {e}")
             target_length = int(self.audio_sample_rate * self.audio_duration)
             return torch.zeros(target_length)
         
-        # Pad or trim to fixed duration
+        # Pad or trim
         target_length = int(self.audio_sample_rate * self.audio_duration)
         
         if waveform.shape[0] < target_length:
@@ -208,12 +175,8 @@ class RAVDESSDataset(Dataset):
             if not ret:
                 break
             
-            # Convert BGR to RGB
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            
-            # Resize
             frame = cv2.resize(frame, self.video_size)
-            
             frames.append(frame)
         
         cap.release()
@@ -226,15 +189,12 @@ class RAVDESSDataset(Dataset):
             indices = np.linspace(0, len(frames) - 1, self.num_video_frames, dtype=int)
             frames = [frames[i] for i in indices]
         elif len(frames) < self.num_video_frames:
-            # Repeat last frame
             while len(frames) < self.num_video_frames:
                 frames.append(frames[-1])
         
-        # Convert to tensor [T, H, W, C] -> [T, C, H, W]
+        # Convert to tensor
         frames = np.stack(frames)
         frames = torch.from_numpy(frames).permute(0, 3, 1, 2).float()
-        
-        # Normalize to [0, 1]
         frames = frames / 255.0
         
         return frames
@@ -243,17 +203,10 @@ class RAVDESSDataset(Dataset):
         return len(self.video_files)
     
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, int, Dict]:
-        """
-        Returns:
-            audio: [T_audio] - Audio waveform
-            video: [T, C, H, W] - Video frames
-            label: int - Emotion label (0-7)
-            metadata: dict - File metadata
-        """
         video_path = self.video_files[idx]
         
         # Parse filename
-        metadata = self._parse_filename(video_path)
+        metadata = self._parse_filename(video_path.name)
         
         # Get emotion label
         emotion_code = metadata["emotion"]
@@ -263,13 +216,12 @@ class RAVDESSDataset(Dataset):
         audio = self._extract_audio(video_path)
         video = self._extract_video(video_path)
         
-        # Add filename to metadata
         metadata["filename"] = video_path.name
         
         return audio, video, label, metadata
 
 
-def create_ravdess_dataloaders(
+def create_simple_ravdess_dataloaders(
     data_dir: str,
     modality: str = "speech",
     batch_size: int = 8,
@@ -277,41 +229,31 @@ def create_ravdess_dataloaders(
     use_audio: bool = True,
 ) -> Tuple[DataLoader, DataLoader, DataLoader]:
     """
-    Create train, val, test dataloaders for RAVDESS.
+    Create dataloaders using simple dataset loader.
     
-    Args:
-        data_dir: Path to RAVDESS data directory
-        modality: "speech" or "song"
-        batch_size: Batch size
-        num_workers: Number of workers for data loading
-        use_audio: Whether to extract audio (requires ffmpeg)
-    
-    Returns:
-        train_loader, val_loader, test_loader
+    Works with ANY folder structure - just finds all .mp4 files!
     """
-    # Create datasets
-    train_dataset = RAVDESSDataset(
+    train_dataset = SimpleRAVDESSDataset(
         data_dir=data_dir,
         split="train",
         modality=modality,
         use_audio=use_audio,
     )
     
-    val_dataset = RAVDESSDataset(
+    val_dataset = SimpleRAVDESSDataset(
         data_dir=data_dir,
         split="val",
         modality=modality,
         use_audio=use_audio,
     )
     
-    test_dataset = RAVDESSDataset(
+    test_dataset = SimpleRAVDESSDataset(
         data_dir=data_dir,
         split="test",
         modality=modality,
         use_audio=use_audio,
     )
     
-    # Create dataloaders
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,

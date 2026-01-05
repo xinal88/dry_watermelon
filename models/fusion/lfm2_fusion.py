@@ -201,8 +201,8 @@ class LFM2Fusion(nn.Module):
         )
         
         print(f"\n[OK] LFM2 Fusion initialized:")
-        print(f"  - Audio: {audio_dim} → {hidden_dim}")
-        print(f"  - Visual: {visual_dim} → {hidden_dim}")
+        print(f"  - Audio: {audio_dim} -> {hidden_dim}")
+        print(f"  - Visual: {visual_dim} -> {hidden_dim}")
         print(f"  - LFM2 layers: {num_layers}")
         print(f"  - Output: {output_dim}")
         print(f"  - Mode: {'Pretrained' if use_pretrained else 'Custom (lightweight)'}")
