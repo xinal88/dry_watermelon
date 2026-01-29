@@ -118,13 +118,14 @@ class SimpleRAVDESSDataset(Dataset):
         return sorted(filtered_videos)
     
     def _extract_audio(self, video_path: Path) -> torch.Tensor:
-        """Extract audio from video."""
+        """Extract audio from video using multiple fallback methods."""
+        target_length = int(self.audio_sample_rate * self.audio_duration)
+        
         if not self.use_audio:
-            target_length = int(self.audio_sample_rate * self.audio_duration)
             return torch.zeros(target_length)
         
+        # Method 1: Try ffmpeg + torchaudio
         try:
-            import torchaudio
             import subprocess
             import tempfile
             
@@ -137,33 +138,80 @@ class SimpleRAVDESSDataset(Dataset):
                 '-ar', str(self.audio_sample_rate),
                 '-ac', '1',
                 '-y', tmp_path,
-                '-loglevel', 'quiet'
+                '-loglevel', 'error'
             ]
             
-            subprocess.run(cmd, check=True)
-            waveform, sr = torchaudio.load(tmp_path)
-            Path(tmp_path).unlink()
+            result = subprocess.run(cmd, capture_output=True, text=True)
             
-            if waveform.shape[0] > 1:
-                waveform = waveform.mean(dim=0, keepdim=True)
+            if result.returncode == 0:
+                # Try loading with torchaudio
+                try:
+                    import torchaudio
+                    waveform, sr = torchaudio.load(tmp_path)
+                    Path(tmp_path).unlink()
+                    
+                    if waveform.shape[0] > 1:
+                        waveform = waveform.mean(dim=0, keepdim=True)
+                    
+                    waveform = waveform.squeeze(0)
+                    
+                    # Pad or trim
+                    if waveform.shape[0] < target_length:
+                        padding = target_length - waveform.shape[0]
+                        waveform = torch.nn.functional.pad(waveform, (0, padding))
+                    else:
+                        waveform = waveform[:target_length]
+                    
+                    return waveform
+                    
+                except Exception as e:
+                    # Try with soundfile as fallback
+                    try:
+                        import soundfile as sf
+                        waveform, sr = sf.read(tmp_path)
+                        Path(tmp_path).unlink()
+                        
+                        waveform = torch.from_numpy(waveform).float()
+                        
+                        # Pad or trim
+                        if waveform.shape[0] < target_length:
+                            padding = target_length - waveform.shape[0]
+                            waveform = torch.nn.functional.pad(waveform, (0, padding))
+                        else:
+                            waveform = waveform[:target_length]
+                        
+                        return waveform
+                    except:
+                        if Path(tmp_path).exists():
+                            Path(tmp_path).unlink()
+            else:
+                if Path(tmp_path).exists():
+                    Path(tmp_path).unlink()
+                    
+        except Exception as e:
+            pass
+        
+        # Method 2: Try librosa directly on video
+        try:
+            import librosa
+            waveform, sr = librosa.load(str(video_path), sr=self.audio_sample_rate, mono=True)
+            waveform = torch.from_numpy(waveform).float()
             
-            waveform = waveform.squeeze(0)
+            # Pad or trim
+            if waveform.shape[0] < target_length:
+                padding = target_length - waveform.shape[0]
+                waveform = torch.nn.functional.pad(waveform, (0, padding))
+            else:
+                waveform = waveform[:target_length]
+            
+            return waveform
             
         except Exception as e:
-            warnings.warn(f"Failed to extract audio from {video_path}: {e}")
-            target_length = int(self.audio_sample_rate * self.audio_duration)
-            return torch.zeros(target_length)
+            pass
         
-        # Pad or trim
-        target_length = int(self.audio_sample_rate * self.audio_duration)
-        
-        if waveform.shape[0] < target_length:
-            padding = target_length - waveform.shape[0]
-            waveform = torch.nn.functional.pad(waveform, (0, padding))
-        else:
-            waveform = waveform[:target_length]
-        
-        return waveform
+        # Fallback: Return zeros (silent audio)
+        warnings.warn(f"All audio extraction methods failed for {video_path.name}, using silent audio")
+        return torch.zeros(target_length)
     
     def _extract_video(self, video_path: Path) -> torch.Tensor:
         """Extract video frames."""

@@ -245,6 +245,7 @@ def train_epoch(model, train_loader, criterion, optimizer, scaler, device, grad_
     total_loss = 0.0
     correct = 0
     total = 0
+    nan_count = 0
     
     pbar = tqdm(train_loader, desc="Training")
     
@@ -253,10 +254,25 @@ def train_epoch(model, train_loader, criterion, optimizer, scaler, device, grad_
         video = video.to(device)
         labels = labels.to(device)
         
+        # Check for NaN in inputs
+        if torch.isnan(audio).any() or torch.isnan(video).any():
+            print(f"\n⚠️  Warning: NaN detected in inputs at batch {batch_idx}, skipping...")
+            continue
+        
         # Forward with mixed precision
         with autocast():
             outputs = model(audio, video)
             loss = criterion(outputs["logits"], labels)
+            
+            # Check for NaN loss
+            if torch.isnan(loss) or torch.isinf(loss):
+                print(f"\n⚠️  Warning: NaN/Inf loss at batch {batch_idx}, skipping...")
+                nan_count += 1
+                if nan_count > 10:
+                    print(f"\n❌ Too many NaN losses ({nan_count}), stopping training")
+                    raise ValueError("Training unstable: too many NaN losses")
+                continue
+            
             loss = loss / grad_accum_steps
         
         # Backward
@@ -264,8 +280,32 @@ def train_epoch(model, train_loader, criterion, optimizer, scaler, device, grad_
         
         # Gradient accumulation
         if (batch_idx + 1) % grad_accum_steps == 0:
+            # Unscale gradients
             scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            
+            # Check for NaN gradients
+            has_nan_grad = False
+            for param in model.parameters():
+                if param.grad is not None and (torch.isnan(param.grad).any() or torch.isinf(param.grad).any()):
+                    has_nan_grad = True
+                    break
+            
+            if has_nan_grad:
+                print(f"\n⚠️  Warning: NaN gradient detected, skipping update...")
+                optimizer.zero_grad()
+                nan_count += 1
+                continue
+            
+            # Gradient clipping (more aggressive)
+            grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            
+            # Check gradient norm
+            if grad_norm > 100:
+                print(f"\n⚠️  Warning: Large gradient norm ({grad_norm:.2f}), skipping update...")
+                optimizer.zero_grad()
+                continue
+            
+            # Optimizer step
             scaler.step(optimizer)
             scaler.update()
             optimizer.zero_grad()
@@ -278,11 +318,18 @@ def train_epoch(model, train_loader, criterion, optimizer, scaler, device, grad_
         
         pbar.set_postfix({
             "loss": f"{loss.item() * grad_accum_steps:.4f}",
-            "acc": f"{100*correct/total:.2f}%"
+            "acc": f"{100*correct/total:.2f}%",
+            "nan": nan_count
         })
+    
+    if total == 0:
+        return float('inf'), 0.0
     
     avg_loss = total_loss / len(train_loader)
     accuracy = 100 * correct / total
+    
+    if nan_count > 0:
+        print(f"\n⚠️  Training had {nan_count} NaN occurrences")
     
     return avg_loss, accuracy
 
